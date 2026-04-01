@@ -55,10 +55,13 @@ def rule_based_simplify(text):
     return f"In simple words: {simplified}"
 
 
-def simplify_text(user_input):
-    model, vectorizer, df = load_artifacts()
+def split_sentences(text):
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    return [sentence.strip() for sentence in sentences if sentence.strip()]
 
-    cleaned_input = user_input.lower().strip()
+
+def simplify_single_sentence(sentence, model, vectorizer, df):
+    cleaned_input = sentence.lower().strip()
     user_vector = vectorizer.transform([cleaned_input])
 
     distances, indices = model.kneighbors(user_vector, n_neighbors=1)
@@ -69,14 +72,55 @@ def simplify_text(user_input):
     if similarity_score < THRESHOLD:
         return {
             "matched_input": None,
-            "simplified_output": user_input,
-            "similarity_score": similarity_score,
-            "note": "Low similarity, so original sentence was returned."
+            "simplified_output": sentence,
+            "similarity_score": similarity_score
         }
 
     return {
         "matched_input": df.iloc[best_index]["input"],
         "simplified_output": df.iloc[best_index]["output"],
-        "similarity_score": similarity_score,
-        "note": "Simplified using closest dataset match."
+        "similarity_score": similarity_score
+    }
+
+
+def simplify_text(user_input):
+    model, vectorizer, df = load_artifacts()
+
+    sentences = split_sentences(user_input)
+
+    if not sentences:
+        return {
+            "matched_input": None,
+            "simplified_output": user_input,
+            "similarity_score": 0.0,
+            "note": "No valid sentence found."
+        }
+
+    simplified_sentences = []
+    matched_inputs = []
+    similarity_scores = []
+
+    for sentence in sentences:
+        result = simplify_single_sentence(sentence, model, vectorizer, df)
+        simplified_sentences.append(result["simplified_output"])
+        similarity_scores.append(result["similarity_score"])
+
+        if result["matched_input"] is not None:
+            matched_inputs.append(result["matched_input"])
+
+    final_output = " ".join(simplified_sentences)
+    avg_similarity = sum(similarity_scores) / len(similarity_scores)
+
+    if matched_inputs:
+        matched_input_text = " | ".join(matched_inputs)
+        note = "Sentence-wise simplification applied."
+    else:
+        matched_input_text = None
+        note = "Low similarity for all sentences, so original text was returned."
+
+    return {
+        "matched_input": matched_input_text,
+        "simplified_output": final_output,
+        "similarity_score": avg_similarity,
+        "note": note
     }
